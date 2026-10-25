@@ -1,0 +1,799 @@
+import 'package:flutter/material.dart';
+
+void main() {
+  runApp(const KasirCafeApp());
+}
+
+class KasirCafeApp extends StatelessWidget {
+  const KasirCafeApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'KasirCafe',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.brown,
+        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+        useMaterial3: true,
+      ),
+      home: const MainKasirScreen(),
+    );
+  }
+}
+
+// ==========================================
+// MODEL DATA
+// ==========================================
+class Category {
+  String id;
+  String name;
+
+  Category({required this.id, required this.name});
+}
+
+class MenuItemModel {
+  String id;
+  String name;
+  double price;
+  String categoryId;
+
+  MenuItemModel({
+    required this.id,
+    required this.name,
+    required this.price,
+    required this.categoryId,
+  });
+
+  String get abbreviation {
+    List<String> words = name.trim().split(RegExp(r'\s+'));
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    } else if (name.length >= 2) {
+      return name.substring(0, 2).toUpperCase();
+    } else {
+      return name.toUpperCase();
+    }
+  }
+}
+
+class OrderItem {
+  MenuItemModel item;
+  int quantity;
+
+  OrderItem({required this.item, required this.quantity});
+
+  double get totalPrice => item.price * quantity;
+}
+
+// ==========================================
+// SCREEN UTAMA (KASIR / POS)
+// ==========================================
+class MainKasirScreen extends StatefulWidget {
+  const MainKasirScreen({super.key});
+
+  @override
+  State<MainKasirScreen> createState() => _MainKasirScreenState();
+}
+
+class _MainKasirScreenState extends State<MainKasirScreen> {
+  List<Category> categories = [
+    Category(id: '1', name: 'Semua'),
+    Category(id: '2', name: 'Kopi'),
+    Category(id: '3', name: 'Non Kopi'),
+    Category(id: '4', name: 'Makanan'),
+    Category(id: '5', name: 'Cemilan'),
+  ];
+
+  List<MenuItemModel> menuItems = [
+    MenuItemModel(id: '1', name: 'Kopi Hitam', price: 12000, categoryId: '2'),
+    MenuItemModel(id: '2', name: 'Kopi Susu', price: 15000, categoryId: '2'),
+    MenuItemModel(id: '3', name: 'Teh Manis', price: 8000, categoryId: '3'),
+    MenuItemModel(id: '4', name: 'Matcha Latte', price: 18000, categoryId: '3'),
+    MenuItemModel(id: '5', name: 'Nasi Goreng', price: 20000, categoryId: '4'),
+    MenuItemModel(id: '6', name: 'Kentang Goreng', price: 12000, categoryId: '5'),
+  ];
+
+  String selectedCategoryId = '1';
+  List<OrderItem> selectedOrders = [];
+  String paymentMethod = 'qris';
+  TextEditingController cashInputController = TextEditingController();
+  double cashGiven = 0;
+  bool isBluetoothConnected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Diperbaiki: Menggunakan WidgetsBinding.instance
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!isBluetoothConnected) {
+        _showBluetoothAlert();
+      }
+    });
+  }
+
+  void _showBluetoothAlert() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.bluetooth_searching, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Koneksi Printer'),
+          ],
+        ),
+        content: const Text(
+          'Printer Bluetooth belum terhubung.\nSilakan hubungkan ke mesin printer terlebih dahulu untuk mencetak struk.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Nanti'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() => isBluetoothConnected = true);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Printer terhubung (Simulasi)')),
+              );
+            },
+            child: const Text('Hubungkan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addMenuItemToOrder(MenuItemModel item) {
+    setState(() {
+      int index = selectedOrders.indexWhere((element) => element.item.id == item.id);
+      if (index != -1) {
+        selectedOrders[index].quantity++;
+      } else {
+        selectedOrders.add(OrderItem(item: item, quantity: 1));
+      }
+    });
+  }
+
+  void _removeMenuItemFromOrder(MenuItemModel item) {
+    setState(() {
+      int index = selectedOrders.indexWhere((element) => element.item.id == item.id);
+      if (index != -1) {
+        if (selectedOrders[index].quantity > 1) {
+          selectedOrders[index].quantity--;
+        } else {
+          selectedOrders.removeAt(index);
+        }
+      }
+    });
+  }
+
+  double get grandTotal {
+    return selectedOrders.fold(0, (sum, item) => sum + item.totalPrice);
+  }
+
+  double get changeAmount {
+    if (paymentMethod == 'tunai' && cashGiven >= grandTotal) {
+      return cashGiven - grandTotal;
+    }
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<MenuItemModel> filteredMenu = selectedCategoryId == '1'
+        ? menuItems
+        : menuItems.where((item) => item.categoryId == selectedCategoryId).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('KasirCafe', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.brown[700],
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(
+              isBluetoothConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+              color: isBluetoothConnected ? Colors.lightGreenAccent : Colors.white70,
+            ),
+            onPressed: _showBluetoothAlert,
+          ),
+        ],
+      ),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(color: Colors.brown[700]),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.local_cafe, size: 50, color: Colors.white),
+                  SizedBox(height: 10),
+                  Text('KasirCafe System', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.point_of_sale),
+              title: const Text('Kasir / Tampilan Utama'),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.category),
+              title: const Text('Add Category (Kelola)'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CategoryManagementScreen(
+                      categories: categories,
+                      onCategoriesChanged: (updated) => setState(() => categories = updated),
+                    ),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.restaurant_menu),
+              title: const Text('Add Menu (Kelola)'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => MenuManagementScreen(
+                      menuItems: menuItems,
+                      categories: categories,
+                      onMenuChanged: (updated) => setState(() => menuItems = updated),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+      body: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Daftar Pesanan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Divider(),
+                  Expanded(
+                    child: selectedOrders.isEmpty
+                        ? const Center(child: Text('Belum ada menu dipilih'))
+                        : ListView.builder(
+                            itemCount: selectedOrders.length,
+                            itemBuilder: (context, index) {
+                              final order = selectedOrders[index];
+                              return Card(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                child: ListTile(
+                                  dense: true,
+                                  title: Text(order.item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  subtitle: Text('Rp ${order.item.price.toStringAsFixed(0)} x ${order.quantity}'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                        onPressed: () => _removeMenuItemFromOrder(order.item),
+                                      ),
+                                      Text('${order.quantity}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                      IconButton(
+                                        icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+                                        onPressed: () => _addMenuItemToOrder(order.item),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  const Divider(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text('Rp ${grandTotal.toStringAsFixed(0)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.brown)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Text('Pembayaran: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: DropdownButton<String>(
+                          value: paymentMethod,
+                          isExpanded: true,
+                          items: const [
+                            DropdownMenuItem(value: 'qris', child: Text('QRIS')),
+                            DropdownMenuItem(value: 'tunai', child: Text('Tunai')),
+                            DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+                          ],
+                          onChanged: (val) {
+                            setState(() {
+                              paymentMethod = val!;
+                              cashGiven = 0;
+                              cashInputController.clear();
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (paymentMethod == 'tunai') ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: cashInputController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Uang Diterima (Rp)',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: (val) {
+                        setState(() {
+                          cashGiven = double.tryParse(val) ?? 0;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Kembalian:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('Rp ${changeAmount.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[700], foregroundColor: Colors.white),
+                          onPressed: selectedOrders.isEmpty ? null : () => _cetakAction('Struk'),
+                          icon: const Icon(Icons.print),
+                          label: const Text('Cetak Struk'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: selectedOrders.isEmpty ? null : () => _cetakAction('Dapur'),
+                          icon: const Icon(Icons.soup_kitchen),
+                          label: const Text('Cetak Dapur'),
+                        ),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 6,
+            child: Container(
+              color: Colors.grey[100],
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: categories.map((cat) {
+                        bool isSelected = selectedCategoryId == cat.id;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+                          child: ChoiceChip(
+                            label: Text(cat.name),
+                            selected: isSelected,
+                            selectedColor: Colors.brown[400],
+                            labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() {
+                                  selectedCategoryId = cat.id;
+                                });
+                              }
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: filteredMenu.isEmpty
+                        ? const Center(child: Text('Menu tidak ditemukan'))
+                        : GridView.builder(
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              childAspectRatio: 0.85,
+                              crossAxisSpacing: 10,
+                              mainAxisSpacing: 10,
+                            ),
+                            itemCount: filteredMenu.length,
+                            itemBuilder: (context, index) {
+                              final item = filteredMenu[index];
+                              return InkWell(
+                                onTap: () => _addMenuItemToOrder(item),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 55,
+                                        height: 55,
+                                        decoration: BoxDecoration(
+                                          color: Colors.brown[100],
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            item.abbreviation,
+                                            style: TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.brown[800],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                        child: Text(
+                                          item.name,
+                                          textAlign: TextAlign.center,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                        ),
+                                      ),
+                                      Text(
+                                        'Rp ${item.price.toStringAsFixed(0)}',
+                                        style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _cetakAction(String jenis) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Mencetak $jenis'),
+        content: Text('Proses cetak $jenis sedang berjalan...'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Selesai'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// SCREEN KELOLA KATEGORI
+// ==========================================
+class CategoryManagementScreen extends StatefulWidget {
+  final List<Category> categories;
+  final Function(List<Category>) onCategoriesChanged;
+
+  const CategoryManagementScreen({
+    super.key,
+    required this.categories,
+    required this.onCategoriesChanged,
+  });
+
+  @override
+  State<CategoryManagementScreen> createState() => _CategoryManagementScreenState();
+}
+
+class _CategoryManagementScreenState extends State<CategoryManagementScreen> {
+  late List<Category> localCategories;
+  final TextEditingController _categoryController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    localCategories = List.from(widget.categories);
+  }
+
+  void _addCategory() {
+    if (_categoryController.text.trim().isEmpty) return;
+    setState(() {
+      localCategories.add(Category(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: _categoryController.text.trim(),
+      ));
+      _categoryController.clear();
+    });
+    widget.onCategoriesChanged(localCategories);
+  }
+
+  void _deleteCategory(String id) {
+    setState(() {
+      localCategories.removeWhere((item) => item.id == id);
+    });
+    widget.onCategoriesChanged(localCategories);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Kelola Kategori'),
+        backgroundColor: Colors.brown[700],
+        foregroundColor: Colors.white,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Kategori Baru',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                    backgroundColor: Colors.brown[700],
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: _addCategory,
+                  child: const Text('Tambah'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: ListView.builder(
+                itemCount: localCategories.length,
+                itemBuilder: (context, index) {
+                  final cat = localCategories[index];
+                  return Card(
+                    child: ListTile(
+                      title: Text(cat.name),
+                      trailing: cat.id == '1'
+                          ? const Text('(Default)', style: TextStyle(color: Colors.grey))
+                          : IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteCategory(cat.id),
+                            ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// SCREEN KELOLA MENU
+// ==========================================
+class MenuManagementScreen extends StatefulWidget {
+  final List<MenuItemModel> menuItems;
+  final List<Category> categories;
+  final Function(List<MenuItemModel>) onMenuChanged;
+
+  const MenuManagementScreen({
+    super.key,
+    required this.menuItems,
+    required this.categories,
+    required this.onMenuChanged,
+  });
+
+  @override
+  State<MenuManagementScreen> createState() => _MenuManagementScreenState();
+}
+
+class _MenuManagementScreenState extends State<MenuManagementScreen> {
+  late List<MenuItemModel> localMenuItems;
+  String searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    localMenuItems = List.from(widget.menuItems);
+  }
+
+  void _showFormDialog({MenuItemModel? existingItem}) {
+    final nameController = TextEditingController(text: existingItem?.name ?? '');
+    final priceController = TextEditingController(text: existingItem != null ? existingItem.price.toStringAsFixed(0) : '');
+    String selectedCat = existingItem?.categoryId ?? (widget.categories.length > 1 ? widget.categories[1].id : '1');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(existingItem == null ? 'Tambah Menu Baru' : 'Edit Menu'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Nama Menu'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: priceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Harga (Rp)'),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: selectedCat,
+                items: widget.categories
+                    .where((c) => c.id != '1')
+                    .map((c) => DropdownMenuItem(value: c.id, child: Text(c.name)))
+                    .toList(),
+                onChanged: (val) => selectedCat = val!,
+                decoration: const InputDecoration(labelText: 'Kategori'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.isEmpty || priceController.text.isEmpty) return;
+              setState(() {
+                if (existingItem == null) {
+                  localMenuItems.add(MenuItemModel(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    name: nameController.text.trim(),
+                    price: double.tryParse(priceController.text) ?? 0,
+                    categoryId: selectedCat,
+                  ));
+                } else {
+                  existingItem.name = nameController.text.trim();
+                  existingItem.price = double.tryParse(priceController.text) ?? 0;
+                  existingItem.categoryId = selectedCat;
+                }
+              });
+              widget.onMenuChanged(localMenuItems);
+              Navigator.pop(context);
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteMenu(String id) {
+    setState(() {
+      localMenuItems.removeWhere((item) => item.id == id);
+    });
+    widget.onMenuChanged(localMenuItems);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<MenuItemModel> searchResult = localMenuItems.where((item) {
+      return item.name.toLowerCase().contains(searchQuery.toLowerCase());
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Kelola Menu'),
+        backgroundColor: Colors.brown[700],
+        foregroundColor: Colors.white,
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.brown[700],
+        foregroundColor: Colors.white,
+        onPressed: () => _showFormDialog(),
+        child: const Icon(Icons.add),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Cari Menu...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  searchQuery = val;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: searchResult.isEmpty
+                  ? const Center(child: Text('Menu tidak ditemukan'))
+                  : ListView.builder(
+                      itemCount: searchResult.length,
+                      itemBuilder: (context, index) {
+                        final item = searchResult[index];
+                        final categoryName = widget.categories
+                            .firstWhere((c) => c.id == item.categoryId, orElse: () => Category(id: '0', name: 'Unknown'))
+                            .name;
+
+                        return Card(
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.brown[100],
+                              child: Text(item.abbreviation, style: TextStyle(color: Colors.brown[800], fontWeight: FontWeight.bold)),
+                            ),
+                            title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text('Kategori: $categoryName - Rp ${item.price.toStringAsFixed(0)}'),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.blue),
+                                  onPressed: () => _showFormDialog(existingItem: item),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  onPressed: () => _deleteMenu(item.id),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
