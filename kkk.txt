@@ -1,0 +1,19 @@
+Tolong buatkan aplikasi menggunakan bahasa pemrograman flutter.
+
+Aplikasi ini namanya KasirCafe
+Untuk tampilan kasir nya itu seperti deskripsi di bawah ini:
+
+1. Paling atas ada navbar yang bisa memunculkan menu dari kiri ke kanan.
+2. Di bawah navbar ada 2 kotak yang sebelah kiri list menu apa aja yang di pilih,terus di kotak kanan itu di bawah navbar ada button geser ke kiri untuk memilih button category jadi button category nya bisa di geser jika lebih dari 3 atau brp gitu terus di bawahnya itu button nama menu nya jadi tinggal klik² aja apa yang di pesan jadi ada button kotak isi tengah nya nama menu nya namun di singkat otomatis contoh kopi jadi KI namun di bawah button nya ada nama menu nya, terus yang kotak sebelah kiri kan menampilkan brp banyak menu yang di pilih maka buatin juga tombol mines untuk mengurangi menu yang di pilih jika customer berubah pikiran jadi semisal tadi udh klik menu kopi 3x dan customer minta pesen cuman 2 maka tinggal klik tombol mines maka jadi 2 kopi terus itu kan bentuj list ya maka ada harganya brp aja terus paling bawah ada total harganya brp terus ada button select untuk memilih pembayaran pakek (qris,tunai, transfer) jika tunai maka munculkan input untuk mengisikan brp uang yang di kasih ke kasir jadi nanti bakalan muncul sendiri brp uang untuk kembalian ke customer terus di bawah nya ada button cetak sturk dan cetak dapur.
+3. Terus di navbar tambahin menu add category dan add menu
+4. Di menu add category itu bisa munculin brp list category yang sudah di bikin sama bisa menambahkan baru atau menghapus category nya
+5. Di menu add menu bisa menampilkan semua list menu dan bisa di edit seperti ubah harga ubah nama ubah category atau ingin menambahkan menu baru dan kasih inout search supaya lebih mudah
+
+Itu aja tolong buatkan ya.
+Untuk koneksi ke bluetooth buatkan popup aja jadi jika belum terhubung maka ketika buka aplikasi muncul suruh hubungi ke mesin printer terlebih dahulu
+
+Tolong buatkan supaya bisa terhubung ke mesin printer menggunakan bluetooth ya dan bisa cetak struk
+
+Saya pakai printer jenis 58MM
+Merek printer Eppos
+Ini akan saya buat pakek flutlab.io soalnya saya tidak punya laptop
