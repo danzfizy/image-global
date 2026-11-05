@@ -1,0 +1,793 @@
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+void main() {
+  runApp(const KasirCafeApp());
+}
+
+class KasirCafeApp extends StatelessWidget {
+  const KasirCafeApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'KasirCafe',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.brown,
+        useMaterial3: true,
+      ),
+      home: const KasirMainScreen(),
+    );
+  }
+}
+
+// Data Model
+class CategoryModel {
+  String id;
+  String name;
+  CategoryModel({required this.id, required this.name});
+}
+
+class MenuItemModel {
+  String id;
+  String name;
+  double price;
+  String categoryId;
+
+  MenuItemModel({
+    required this.id,
+    required this.name,
+    required this.price,
+    required this.categoryId,
+  });
+
+  // Fungsi membuat singkatan 2 huruf dari nama menu
+  String get shortName {
+    List<String> words = name.trim().split(RegExp(r'\s+'));
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    } else if (name.length >= 2) {
+      return name.substring(0, 2).toUpperCase();
+    } else if (name.isNotEmpty) {
+      return name.toUpperCase();
+    }
+    return '--';
+  }
+}
+
+class OrderItemModel {
+  MenuItemModel item;
+  int quantity;
+
+  OrderItemModel({required this.item, required this.quantity});
+  double get totalPrice => item.price * quantity;
+}
+
+class KasirMainScreen extends StatefulWidget {
+  const KasirMainScreen({super.key});
+
+  @override
+  State<KasirMainScreen> createState() => _KasirMainScreenState();
+}
+
+class _KasirMainScreenState extends State<KasirMainScreen> {
+  // Config Telegram Bot (Ganti token dan chat_id sesuai bot/channel Anda)
+  final String telegramBotToken = '8682408004:AAFlqr9HDBjE3awFrvWY8Wm9EWn-biKq_WQ';
+  final String telegramChatId = '@uangkasircafevlog';
+
+  // State Data Master
+  List<CategoryModel> categories = [
+    CategoryModel(id: 'cat_all', name: 'Semua'),
+    CategoryModel(id: 'cat_1', name: 'Kopi'),
+    CategoryModel(id: 'cat_2', name: 'Non-Kopi'),
+    CategoryModel(id: 'cat_3', name: 'Makanan'),
+    CategoryModel(id: 'cat_4', name: 'Cemilan'),
+  ];
+
+  List<MenuItemModel> menuItems = [
+    MenuItemModel(id: 'm_1', name: 'Kopi Hitam', price: 10000, categoryId: 'cat_1'),
+    MenuItemModel(id: 'm_2', name: 'Kopi Susu', price: 15000, categoryId: 'cat_1'),
+    MenuItemModel(id: 'm_3', name: 'Teh Manis', price: 5000, categoryId: 'cat_2'),
+    MenuItemModel(id: 'm_4', name: 'Nasi Goreng', price: 20000, categoryId: 'cat_3'),
+    MenuItemModel(id: 'm_5', name: 'Kentang Goreng', price: 12000, categoryId: 'cat_4'),
+  ];
+
+  // State Kasir
+  String selectedCategoryId = 'cat_all';
+  List<OrderItemModel> cart = [];
+  String paymentMethod = 'Tunai';
+  final TextEditingController cashInputController = TextEditingController();
+  double changeAmount = 0.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('KasirCafe', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.brown,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      drawer: AppNavigationDrawer(
+        onNavigate: (index) {
+          Navigator.pop(context); // Tutup drawer
+          if (index == 1) {
+            _openAddCategoryScreen();
+          } else if (index == 2) {
+            _openAddMenuScreen();
+          }
+        },
+      ),
+      body: Row(
+        children: [
+          // Kiri: List Pesanan & Pembayaran
+          Expanded(
+            flex: 4,
+            child: Container(
+              color: Colors.grey[100],
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    color: Colors.brown[100],
+                    child: const Text(
+                      'Daftar Pesanan',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Expanded(
+                    child: cart.isEmpty
+                        ? const Center(child: Text('Belum ada menu yang dipilih'))
+                        : ListView.builder(
+                            itemCount: cart.length,
+                            itemBuilder: (context, index) {
+                              final order = cart[index];
+                              return Card(
+                                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                child: ListTile(
+                                  title: Text(order.item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  subtitle: Text('Rp ${order.item.price.toStringAsFixed(0)} x ${order.quantity}'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Rp ${order.totalPrice.toStringAsFixed(0)}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(Icons.remove_circle, color: Colors.red),
+                                        onPressed: () => _decreaseItemQuantity(order.item),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  _buildPaymentSection(),
+                ],
+              ),
+            ),
+          ),
+          const VerticalDivider(width: 1),
+          // Kanan: Kategori Scrollable & Grid Menu
+          Expanded(
+            flex: 6,
+            child: Column(
+              children: [
+                // Scrollable Category Buttons
+                SizedBox(
+                  height: 60,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: categories.length,
+                    itemBuilder: (context, index) {
+                      final cat = categories[index];
+                      final isSelected = cat.id == selectedCategoryId;
+                      return Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isSelected ? Colors.brown : Colors.grey[300],
+                            foregroundColor: isSelected ? Colors.white : Colors.black,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              selectedCategoryId = cat.id;
+                            });
+                          },
+                          child: Text(cat.name),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Divider(height: 1),
+                // Grid Menu
+                Expanded(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(12),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 0.9,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: filteredMenuItems.length,
+                    itemBuilder: (context, index) {
+                      final menu = filteredMenuItems[index];
+                      return InkWell(
+                        onTap: () => _addToCart(menu),
+                        child: Card(
+                          elevation: 3,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 26,
+                                backgroundColor: Colors.brown[400],
+                                child: Text(
+                                  menu.shortName,
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                menu.name,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Rp ${menu.price.toStringAsFixed(0)}',
+                                style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<MenuItemModel> get filteredMenuItems {
+    if (selectedCategoryId == 'cat_all') return menuItems;
+    return menuItems.where((item) => item.categoryId == selectedCategoryId).toList();
+  }
+
+  double get grandTotal {
+    return cart.fold(0, (sum, item) => sum + item.totalPrice);
+  }
+
+  void _addToCart(MenuItemModel item) {
+    setState(() {
+      int index = cart.indexWhere((element) => element.item.id == item.id);
+      if (index != -1) {
+        cart[index].quantity++;
+      } else {
+        cart.add(OrderItemModel(item: item, quantity: 1));
+      }
+      _calculateChange();
+    });
+  }
+
+  void _decreaseItemQuantity(MenuItemModel item) {
+    setState(() {
+      int index = cart.indexWhere((element) => element.item.id == item.id);
+      if (index != -1) {
+        if (cart[index].quantity > 1) {
+          cart[index].quantity--;
+        } else {
+          cart.removeAt(index);
+        }
+      }
+      _calculateChange();
+    });
+  }
+
+  void _calculateChange() {
+    if (paymentMethod == 'Tunai') {
+      double cash = double.tryParse(cashInputController.text) ?? 0;
+      setState(() {
+        changeAmount = cash - grandTotal;
+      });
+    } else {
+      setState(() {
+        changeAmount = 0;
+      });
+    }
+  }
+
+  Widget _buildPaymentSection() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, -2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Total:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('Rp ${grandTotal.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.brown)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Text('Pembayaran: ', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(width: 8),
+              DropdownButton<String>(
+                value: paymentMethod,
+                items: ['Tunai', 'QRIS', 'Transfer'].map((String value) {
+                  return DropdownMenuItem<String>(value: value, child: Text(value));
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      paymentMethod = val;
+                      _calculateChange();
+                    });
+                  }
+                },
+              ),
+            ],
+          ),
+          if (paymentMethod == 'Tunai') ...[
+            TextField(
+              controller: cashInputController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Uang Diterima (Rp)',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => _calculateChange(),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Kembalian: Rp ${changeAmount < 0 ? 0 : changeAmount.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: changeAmount < 0 ? Colors.red : Colors.green[700],
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.receipt_long),
+                  label: const Text('Cetak Struk'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.brown, foregroundColor: Colors.white),
+                  onPressed: cart.isEmpty ? null : () => _sendReceiptToTelegram(isKitchen: false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.soup_kitchen),
+                  label: const Text('Cetak Dapur'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800], foregroundColor: Colors.white),
+                  onPressed: cart.isEmpty ? null : () => _sendReceiptToTelegram(isKitchen: true),
+                ),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendReceiptToTelegram({required bool isKitchen}) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (telegramBotToken == 'YOUR_TELEGRAM_BOT_TOKEN') {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Harap isi token Bot Telegram & Chat ID pada kode lebih dulu!')),
+      );
+      return;
+    }
+
+    String title = isKitchen ? "🧾 **STRUK DAPUR - KASIR CAFE**" : "🧾 **STRUK PEMBAYARAN - KASIR CAFE**";
+    String text = "$title\n";
+    text += "-----------------------------------\n";
+    for (var item in cart) {
+      if (isKitchen) {
+        text += "• ${item.item.name} x${item.quantity}\n";
+      } else {
+        text += "• ${item.item.name} (${item.quantity}x) = Rp ${item.totalPrice.toStringAsFixed(0)}\n";
+      }
+    }
+    text += "-----------------------------------\n";
+
+    if (!isKitchen) {
+      text += "TOTAL : Rp ${grandTotal.toStringAsFixed(0)}\n";
+      text += "METODE: $paymentMethod\n";
+      if (paymentMethod == 'Tunai') {
+        double cash = double.tryParse(cashInputController.text) ?? 0;
+        text += "BAYAR : Rp ${cash.toStringAsFixed(0)}\n";
+        text += "KEMBALI: Rp ${changeAmount.toStringAsFixed(0)}\n";
+      }
+    }
+
+    final url = Uri.parse('https://api.telegram.org/bot$telegramBotToken/sendMessage');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'chat_id': telegramChatId,
+          'text': text,
+          'parse_mode': 'Markdown',
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(isKitchen ? 'Struk dapur terkirim ke Telegram!' : 'Struk pembayaran terkirim ke Telegram!')),
+        );
+      } else {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Gagal mengirim ke Telegram: ${response.body}')),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Terjadi error: $e')),
+      );
+    }
+  }
+
+  void _openAddCategoryScreen() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddCategoryScreen(
+          categories: categories,
+          onUpdate: (updatedList) {
+            setState(() {
+              categories = updatedList;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openAddMenuScreen() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddMenuScreen(
+          menuItems: menuItems,
+          categories: categories,
+          onUpdate: (updatedList) {
+            setState(() {
+              menuItems = updatedList;
+            });
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// Navigation Drawer
+class AppNavigationDrawer extends StatelessWidget {
+  final Function(int) onNavigate;
+  const AppNavigationDrawer({super.key, required this.onNavigate});
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(color: Colors.brown),
+            child: Text(
+              'Menu Navigation',
+              style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.point_of_sale),
+            title: const Text('Kasir Utama'),
+            onTap: () => onNavigate(0),
+          ),
+          ListTile(
+            leading: const Icon(Icons.category),
+            title: const Text('Add / Manage Category'),
+            onTap: () => onNavigate(1),
+          ),
+          ListTile(
+            leading: const Icon(Icons.restaurant_menu),
+            title: const Text('Add / Manage Menu'),
+            onTap: () => onNavigate(2),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Halaman Add Category
+class AddCategoryScreen extends StatefulWidget {
+  final List<CategoryModel> categories;
+  final Function(List<CategoryModel>) onUpdate;
+
+  const AddCategoryScreen({super.key, required this.categories, required this.onUpdate});
+
+  @override
+  State<AddCategoryScreen> createState() => _AddCategoryScreenState();
+}
+
+class _AddCategoryScreenState extends State<AddCategoryScreen> {
+  late List<CategoryModel> categoriesList;
+  final TextEditingController categoryController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    categoriesList = List.from(widget.categories);
+  }
+
+  void _addCategory() {
+    if (categoryController.text.trim().isEmpty) return;
+    setState(() {
+      categoriesList.add(CategoryModel(
+        id: 'cat_${DateTime.now().millisecondsSinceEpoch}',
+        name: categoryController.text.trim(),
+      ));
+      categoryController.clear();
+    });
+    widget.onUpdate(categoriesList);
+  }
+
+  void _deleteCategory(int index) {
+    if (categoriesList[index].id == 'cat_all') return;
+    setState(() {
+      categoriesList.removeAt(index);
+    });
+    widget.onUpdate(categoriesList);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Kelola Kategori'), backgroundColor: Colors.brown, foregroundColor: Colors.white),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama Kategori Baru',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.brown, foregroundColor: Colors.white),
+                  onPressed: _addCategory,
+                  child: const Text('Tambah'),
+                )
+              ],
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: ListView.builder(
+                itemCount: categoriesList.length,
+                itemBuilder: (context, index) {
+                  final cat = categoriesList[index];
+                  return Card(
+                    child: ListTile(
+                      title: Text(cat.name),
+                      trailing: cat.id == 'cat_all'
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteCategory(index),
+                            ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Halaman Add / Manage Menu
+class AddMenuScreen extends StatefulWidget {
+  final List<MenuItemModel> menuItems;
+  final List<CategoryModel> categories;
+  final Function(List<MenuItemModel>) onUpdate;
+
+  const AddMenuScreen({
+    super.key,
+    required this.menuItems,
+    required this.categories,
+    required this.onUpdate,
+  });
+
+  @override
+  State<AddMenuScreen> createState() => _AddMenuScreenState();
+}
+
+class _AddMenuScreenState extends State<AddMenuScreen> {
+  late List<MenuItemModel> menuList;
+  String searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    menuList = List.from(widget.menuItems);
+  }
+
+  List<MenuItemModel> get filteredList {
+    if (searchQuery.isEmpty) return menuList;
+    return menuList.where((item) => item.name.toLowerCase().contains(searchQuery.toLowerCase())).toList();
+  }
+
+  void _showFormDialog({MenuItemModel? itemToEdit}) {
+    final nameController = TextEditingController(text: itemToEdit?.name ?? '');
+    final priceController = TextEditingController(text: itemToEdit != null ? itemToEdit.price.toStringAsFixed(0) : '');
+    String selectedCatId = itemToEdit?.categoryId ?? (widget.categories.length > 1 ? widget.categories[1].id : widget.categories[0].id);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(itemToEdit == null ? 'Tambah Menu Baru' : 'Edit Menu'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Nama Menu'),
+                ),
+                TextField(
+                  controller: priceController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Harga (Rp)'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedCatId,
+                  decoration: const InputDecoration(labelText: 'Kategori'),
+                  items: widget.categories.where((c) => c.id != 'cat_all').map((cat) {
+                    return DropdownMenuItem(value: cat.id, child: Text(cat.name));
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) selectedCatId = val;
+                  },
+                )
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Batal')),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.isEmpty || priceController.text.isEmpty) return;
+                setState(() {
+                  if (itemToEdit == null) {
+                    menuList.add(MenuItemModel(
+                      id: 'm_${DateTime.now().millisecondsSinceEpoch}',
+                      name: nameController.text.trim(),
+                      price: double.tryParse(priceController.text) ?? 0,
+                      categoryId: selectedCatId,
+                    ));
+                  } else {
+                    itemToEdit.name = nameController.text.trim();
+                    itemToEdit.price = double.tryParse(priceController.text) ?? 0;
+                    itemToEdit.categoryId = selectedCatId;
+                  }
+                });
+                widget.onUpdate(menuList);
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Simpan'),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+  void _deleteMenu(MenuItemModel item) {
+    setState(() {
+      menuList.removeWhere((element) => element.id == item.id);
+    });
+    widget.onUpdate(menuList);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Kelola Menu'), backgroundColor: Colors.brown, foregroundColor: Colors.white),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.brown,
+        onPressed: () => _showFormDialog(),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Cari Menu...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  searchQuery = val;
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView.builder(
+                itemCount: filteredList.length,
+                itemBuilder: (context, index) {
+                  final item = filteredList[index];
+                  final catName = widget.categories.firstWhere((c) => c.id == item.categoryId, orElse: () => CategoryModel(id: '', name: '-')).name;
+                  return Card(
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.brown,
+                        child: Text(item.shortName, style: const TextStyle(color: Colors.white)),
+                      ),
+                      title: Text(item.name),
+                      subtitle: Text('Rp ${item.price.toStringAsFixed(0)} | Kategori: $catName'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(icon: const Icon(Icons.edit, color: Colors.blue), onPressed: () => _showFormDialog(itemToEdit: item)),
+                          IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _deleteMenu(item)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
